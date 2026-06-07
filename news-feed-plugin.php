@@ -1,10 +1,22 @@
 <?php
 /*
-Plugin Name: The News Feed
-Description: Fetches approved news from backend and posts to WordPress.
+Plugin Name: The News Feed — Auto Post
+Plugin URI: https://thenewsfeeds.in
+Description: Fetches approved Malayalam news from The News Feed backend and publishes it to WordPress.
 Version: 1.0.0
-Author: Your Name
+Requires at least: 6.0
+Requires PHP: 8.0
+Author: darsansraj
+License: GPL v2 or later
+License URI: https://www.gnu.org/licenses/gpl-2.0.html
+Text Domain: the-news-feed
 */
+
+
+
+
+
+
 
 if (!defined('ABSPATH')) {
     exit;
@@ -15,9 +27,8 @@ require_once plugin_dir_path(__FILE__) . 'includes/settings-page.php';
 
 function tnf_fetch_articles() {
 
-    error_log("PLUGIN STARTED");
 
-    $backend_url = "http://localhost:8000";
+    $backend_url = "https://api.thenewsfeeds.in";
     $api_key = get_option('tnf_api_key');
     $domain = trailingslashit(home_url());
     
@@ -25,14 +36,12 @@ function tnf_fetch_articles() {
     $response = wp_remote_get(
         $backend_url . '/feed?api_key=' . urlencode($api_key) . '&domain=' . urlencode($domain),
         [
-            'sslverify' => false,
+            'timeout' => 15
         ]
     );
 
-    error_log(print_r($response, true));
 
     if (is_wp_error($response)) {
-        update_option('tnf_last_feed_response', $response->get_error_message());
         return;
     }
 
@@ -40,10 +49,8 @@ function tnf_fetch_articles() {
 
     $articles = json_decode(wp_remote_retrieve_body($response), true);
 
-    error_log(print_r($articles, true));
 
     if (!$articles || empty($articles)) {
-        update_option('tnf_last_feed_response', 'No new articles found.');
         return;
     }
 
@@ -73,9 +80,11 @@ function tnf_fetch_articles() {
         }
         
 
-        $source_slug = basename(parse_url($article['link'], PHP_URL_PATH));
+        $parsed_url = wp_parse_url($article['link']);
 
-        error_log("INSERTING POST");
+        $source_slug = basename(
+            $parsed_url['path'] ?? ''
+        );
 
         $scheduled_time = !empty(
             $article['scheduled_publish_time']
@@ -103,7 +112,6 @@ function tnf_fetch_articles() {
             'post_name'    => $source_slug
         ]);
 
-        error_log(print_r($post_id, true));
 
         if (!is_wp_error($post_id) && $post_id) {
 
@@ -139,7 +147,6 @@ function tnf_fetch_articles() {
                 $article_hash
             );
 
-            error_log("DOWNLOADING IMAGE");
 
             if (!empty($article['image_url'])) {
 
@@ -172,14 +179,14 @@ function tnf_fetch_articles() {
         wp_remote_post(
             $backend_url . '/ack-delivery',
             [
+                'timeout' => 15,
                 'headers' => [
                     'Content-Type' => 'application/json'
                 ],
                 'body' => wp_json_encode([
                     'api_key' => $api_key,
                     'article_ids' => $successfully_posted_ids
-                ]),
-                'sslverify' => false
+                ])
             ]
         );
     }
@@ -196,9 +203,9 @@ register_deactivation_hook(__FILE__, 'tnf_unschedule_cron');
 
 
 function tnf_add_cron_interval($schedules) {
-    $schedules['five_minutes'] = [
-        'interval' => 300,       # change to 300 for 5 minutes in production
-        'display'  => 'Every 5 Minutes'
+    $schedules['thirty_minutes'] = [
+        'interval' => 1800,      # change to 1800 for 30 minutes in production
+        'display'  => 'Every 30 Minutes'
     ];
 
     return $schedules;
@@ -207,7 +214,7 @@ function tnf_add_cron_interval($schedules) {
 
 function tnf_schedule_cron() {
     if (!wp_next_scheduled('tnf_fetch_articles_cron')) {
-        wp_schedule_event(time(), 'five_minutes', 'tnf_fetch_articles_cron');
+        wp_schedule_event(time(), 'thirty_minutes', 'tnf_fetch_articles_cron');
     }
 }
 
