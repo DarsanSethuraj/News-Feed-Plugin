@@ -4,9 +4,6 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-error_log("PLUGIN FILE LOADED");
-error_log("Next scheduled cron job date: " . date('Y-m-d H:i:s', wp_next_scheduled('tnf_fetch_articles_cron')));
-
 require_once ABSPATH . 'wp-admin/includes/media.php';
 require_once ABSPATH . 'wp-admin/includes/file.php';
 require_once ABSPATH . 'wp-admin/includes/image.php';
@@ -15,19 +12,19 @@ add_action('admin_menu', 'tnf_add_admin_menu');
 add_action('admin_init', 'tnf_register_settings');
 
 function tnf_add_admin_menu() {
-    add_menu_page(
+    add_options_page(
         'The News Feed Settings',
         'The News Feed',
         'manage_options',
         'the-news-feed',
-        'tnf_settings_page_html',
-        'dashicons-rss',
-        20
+        'tnf_settings_page_html'
     );
 }
 
 function tnf_register_settings() {
-    register_setting('tnf_settings_group', 'tnf_api_key');
+    
+    register_setting( 'tnf_settings_group', 'tnf_api_key', 
+    [ 'sanitize_callback' => 'sanitize_text_field' ] );
     register_setting(
         'tnf_settings_group',
         'tnf_category_map',
@@ -56,12 +53,16 @@ function tnf_sanitize_category_map($map) {
 
 function tnf_settings_page_html() {
 
-    $backend_url = "http://localhost:8000";
+    $backend_url = "https://api.thenewsfeeds.in";
 
-    $response = wp_remote_get($backend_url . '/categories', [
-        'sslverify' => false,
-        'timeout' => 15,
-    ]);
+    $api_key = get_option('tnf_api_key');
+
+    $response = wp_remote_get(
+        $backend_url . '/categories?api_key=' . urlencode($api_key),
+        [
+            'timeout' => 15
+        ]
+    );
 
     $backend_categories = [];
 
@@ -77,13 +78,6 @@ function tnf_settings_page_html() {
     ]);
 
     $category_map = get_option('tnf_category_map', []);
-
-    # Display last feed response for debugging, delete in production
-    if ($last_response = get_option('tnf_last_feed_response')): ?>
-        <hr>
-        <h2>Feed Response</h2>
-        <pre><?php echo esc_html($last_response); ?></pre>
-    <?php endif; 
 
     ?>
     <div class="wrap">
@@ -102,6 +96,11 @@ function tnf_settings_page_html() {
                 </tr>
             </table>
 
+            <p class="description">
+            This plugin connects to The News Feed API service to retrieve articles and categories.
+            By entering an API key and saving settings, you authorize communication with the external service.
+            </p>
+
             <h2>Category Mapping</h2>
 
             <table class="form-table">
@@ -113,7 +112,7 @@ function tnf_settings_page_html() {
                                 <option value="">Default / Same Name</option>
 
                                 <?php foreach ($wp_categories as $wp_cat): ?>
-                                    <option value="<?php echo $wp_cat->term_id; ?>"
+                                    <option value="<?php echo esc_attr($wp_cat->term_id); ?>"
                                         <?php selected(
                                             $category_map[$backend_category] ?? '',
                                             $wp_cat->term_id
